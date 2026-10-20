@@ -1,0 +1,19 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Version Updater</title><link rel="stylesheet" href="style.css"></head>
+<body>
+  <header><h1>Version Updater</h1><p>Find the latest footage and render revisions.</p></header>
+  <div class="controls"><label>Selection <select id="mode"><option value="auto">Auto · timeline first</option><option value="project">Project bin</option><option value="timeline">Timeline</option></select></label><button id="scan">Scan selection</button></div>
+  <div class="options">
+    <label>Update mode <select id="action"><option value="replace">Replace existing footage</option><option value="import">Import selected versions to Project bin only</option><option value="add">Add new layers above originals</option></select></label>
+    <label>Updated version label <select id="label"><option value="auto">Auto · different from original</option><option value="keep">Keep existing labels</option></select></label>
+    <label class="check"><input id="duplicate" type="checkbox"> Apply in a duplicate composition</label>
+    <input id="compName" type="text" placeholder="Duplicate composition name (optional)" aria-label="Duplicate composition name" hidden>
+  </div>
+  <p id="scope" class="hint">Replaces checked footage throughout the project. Matches explicit v001, ver001 or version001 tokens.</p>
+  <div id="context" class="hint"></div>
+  <div id="status" role="status">Select footage or timeline layers, then scan.</div>
+  <div class="pick"><button id="selectAll" disabled>Select all updates</button><button id="selectNone" disabled>Select none</button></div>
+  <main id="results"></main>
+  <footer><span id="count">No scan yet</span><button id="update" disabled>Apply checked updates</button></footer>
+  <script src="transport.js"></script><script src="panel.js"></script>
+</body></html>

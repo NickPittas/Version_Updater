@@ -1,0 +1,16 @@
+const assert = require('node:assert/strict');
+const core = require('../extension/jsx/version-core.js');
+const choose = core.choose;
+assert.equal(choose('shot_v009.mov', ['shot_v002.mov', 'shot_v010.mov', 'shot_v100.mov']).name, 'shot_v100.mov');
+assert.equal(choose('shot_v010.mov', ['shot_v009.mov']).status, 'current');
+assert.equal(choose('shot_001.mov', ['shot_999.mov']).status, 'skipped');
+assert.equal(choose('shot_v001.mov', ['other_v999.mov', 'shot_v002.mp4', 'shot_v001_final.mov']).status, 'current');
+assert.equal(choose('shot_v001.mov', ['shot_v2.mov', 'shot_v002.mov']).status, 'skipped');
+assert.equal(choose('shot_v001.1001.exr', ['shot_v002.1005.exr', 'shot_v002.1001.exr', 'shot_v002.1010.exr'], true).name, 'shot_v002.1001.exr');
+assert.equal(choose('shot_v001.1001.exr', ['shot_v002.1001.exr', 'shot_v02.1002.exr'], true).status, 'skipped');
+assert.equal(choose('asset version001.png', ['asset version010.png']).to, 10);
+assert.equal(choose('asset_ver01.wav', ['asset_ver12.wav']).to, 12);
+assert.equal(choose('asset_v001_preview_v002.mov', ['asset_v099_preview_v003.mov']).status, 'current');
+assert.equal(choose('shot_v001.1001.exr', ['shot_v002.001.exr'], true).status, 'current');
+assert.equal(choose('Shot_v001.mov', ['shot_v002.mov']).status, 'current');
+console.log('Passed 12 version-matching checks.');

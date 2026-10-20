@@ -1,0 +1,11 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const dir = path.join(__dirname, 'fixtures');
+fs.mkdirSync(dir, {recursive:true});
+const wav = Buffer.alloc(44 + 16000);
+wav.write('RIFF',0); wav.writeUInt32LE(wav.length-8,4); wav.write('WAVEfmt ',8);
+wav.writeUInt32LE(16,16); wav.writeUInt16LE(1,20); wav.writeUInt16LE(1,22);
+wav.writeUInt32LE(8000,24); wav.writeUInt32LE(16000,28); wav.writeUInt16LE(2,32); wav.writeUInt16LE(16,34);
+wav.write('data',36); wav.writeUInt32LE(16000,40);
+['sound_v001.wav','sound_v002.wav','sound_v010.wav','other_v999.wav'].forEach(name=>fs.writeFileSync(path.join(dir,name),wav));
+console.log('Created isolated audio fixtures.');

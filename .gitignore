@@ -1,0 +1,8 @@
+tests/fixtures/
+tests/live-scan.json
+tests/probe-panel.jsx
+*.zip
+tests/*.json
+tools/
+tests/probe-panel.cjs
+tests/start-ae-bridge.jsx

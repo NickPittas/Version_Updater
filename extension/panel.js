@@ -36,15 +36,16 @@
         else duplicate.disabled = busy;
         compName.hidden = !duplicate.checked;
         if (action.value === 'import') {
-            document.getElementById('scope').textContent = 'Imports checked versions into the same Project bin folders as the originals. Keeps existing footage and timelines unchanged. No composition needs to be open.';
+            document.getElementById('scope').textContent = 'Imports checked versions and keeps existing footage and timelines unchanged. Sequences are grouped into version subfolders, such as card_12. No composition needs to be open.';
             return;
         }
-        var local = action.value === 'add' || duplicate.checked;
+        var local = action.value === 'comp' || action.value === 'add' || duplicate.checked;
         document.getElementById('scope').textContent = action.value === 'add' ?
             'Keeps both sources in the bin. Adds an updated copy directly above each targeted layer, preserving its timing, effects and keyframes.' :
             duplicate.checked ? 'Imports new sources and updates targeted layers only in the duplicated composition. The original composition keeps its old sources.' :
+            action.value === 'comp' ? 'Imports new sources and updates only targeted layers in the scanned composition(s). Original bin footage and other compositions keep their sources.' :
             'Replaces checked footage throughout the project, including every composition using it.';
-        if (local) document.getElementById('scope').textContent += ' Timeline scans target selected layers; Project scans target matching layers in the open composition. Nested precomps are unchanged.';
+        if (local) document.getElementById('scope').textContent += ' Project-bin comp selections scan all direct footage layers in those comps; otherwise the open comp is used. Timeline scans target selected layers. Nested precomps are unchanged. Imported sequences share version subfolders.';
         if (duplicate.checked && action.value === 'add') document.getElementById('scope').textContent += ' All new layers are added in the duplicate.';
     }
     function invoke(script, callback) {
@@ -98,6 +99,7 @@
             var token = row.token || 'v';
             detail.textContent = row.status === 'update' ? token + row.from + ' → ' + token + row.to + (row.sequence ? ' · image sequence' : '') + ' · ' + (row.layerIds || []).length + ' targeted layer(s)' : row.reason || row.status;
             el.appendChild(detail);
+            if (row.binFolder) { var bin = document.createElement('div'); bin.className = 'detail'; bin.textContent = 'Project folder: ' + row.binFolder; el.appendChild(bin); }
             if (row.target) {
                 var paths = document.createElement('details'), summary = document.createElement('summary'); summary.textContent = 'Show target path'; paths.appendChild(summary);
                 var target = document.createElement('div'); target.className = 'detail'; target.textContent = row.target; paths.appendChild(target); el.appendChild(paths);
@@ -114,7 +116,7 @@
                 rows = data.rows; context = data.context || {};
                 if (data.labels) populateLabels(data.labels);
                 rows.forEach(function (row) { row.checked = row.status === 'update' && !row.warning; }); render(rows);
-                document.getElementById('context').textContent = context.compName ? 'Scanned composition: ' + context.compName : 'No composition open at scan time. Layer and duplicate modes require a composition.';
+                document.getElementById('context').textContent = context.compName ? 'Scanned composition(s): ' + (context.comps || [{name:context.compName}]).map(function (comp) { return comp.name; }).join(', ') + ' · direct footage layers only' : 'No composition captured. Comp-only, layer and duplicate modes require a composition.';
                 compName.placeholder = context.compName ? context.compName + ' - updated' : 'Duplicate composition name (optional)';
                 status.textContent = rows.length ? 'Check the versions you want to update.' : 'No source items selected. Choose Project bin or Timeline explicitly if needed.';
             } else status.textContent = data.error;
@@ -123,14 +125,15 @@
     };
     update.onclick = function () {
         if (busy) return;
-        if ((action.value === 'add' || duplicate.checked) && !context.compId) { status.textContent = 'Open the target composition, then scan again.'; return; }
+        if ((action.value === 'comp' || action.value === 'add' || duplicate.checked) && !context.compId) { status.textContent = 'Select a composition in the Project bin or open the target composition, then scan again.'; return; }
         var name = compName.value.trim();
         var request = {rows: selectedRows(), context: context, options: {action: action.value, duplicateComp: duplicate.checked, compName: name, label: label.value}};
         setBusy(true); status.textContent = 'Applying checked updates…';
         invoke('VersionUpdater.apply(' + JSON.stringify(JSON.stringify(request)) + ')', function (data) {
             rows = [];
             if (data.ok) {
-                render(data.results); status.textContent = data.imported ? data.imported + ' version(s) imported to the Project bin. Existing footage and timelines unchanged. Use Edit > Undo to revert.' : data.updated + ' source(s) updated' + (data.layersUpdated ? ', ' + data.layersUpdated + ' layer(s)' : '') + (data.duplicateComp ? ' in ' + data.duplicateComp.name : '') + '. Use Edit > Undo to revert.';
+                var duplicateNames = (data.duplicateComps || (data.duplicateComp ? [data.duplicateComp] : [])).map(function (comp) { return comp.name; });
+                render(data.results); status.textContent = data.imported ? data.imported + ' version(s) imported to the Project bin. Existing footage and timelines unchanged. Use Edit > Undo to revert.' : data.updated + ' source(s) updated' + (data.layersUpdated ? ', ' + data.layersUpdated + ' layer(s)' : '') + (duplicateNames.length ? ' in ' + duplicateNames.join(', ') : '') + '. Use Edit > Undo to revert.';
                 if (data.warnings && data.warnings.length) status.textContent += ' ' + data.warnings.join(' ');
             } else status.textContent = data.error;
             setBusy(false);

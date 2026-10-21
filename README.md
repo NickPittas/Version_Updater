@@ -2,11 +2,11 @@
 
 A dockable Windows CEP panel for finding and importing newer versions of selected footage, including EXR/PNG image sequences stored in sibling 3D render revision folders.
 
-**Current version: 1.4.0.** Tested in After Effects 2026 (26.5x89). The manifest supports AE 22 and later with CEP support; other versions have not been verified. Adobe MCP is optional and is not required to use the updater.
+**Current version: 1.5.2.** Tested in After Effects 2026 (26.5x89), including native composition scans, scoped source swaps, grouped multipass sequence imports and multiple duplicate comps. The manifest supports AE 22 and later with CEP support; other versions have not been verified. Adobe MCP is optional and is not required to use the updater.
 
 ## Install or update
 
-1. [Download Version Updater 1.4.0](https://github.com/NickPittas/Version_Updater/raw/refs/heads/main/downloads/Version-Updater-1.4.0.zip) and extract the entire ZIP to a local folder.
+1. Close After Effects. [Download the signed Version Updater 1.5.2 ZIP](https://github.com/NickPittas/Version_Updater/raw/refs/heads/main/downloads/Version-Updater-1.5.2.zip) and extract it to a local folder.
 2. Double-click **install.cmd**, or run the following command from the extracted folder:
 
    ```powershell
@@ -14,19 +14,25 @@ A dockable Windows CEP panel for finding and importing newer versions of selecte
    ```
 
 3. Open **Window > Extensions > Version Updater** in After Effects. On first installation, restart AE if the panel is not listed.
-4. When updating an existing installation, close and reopen the **Version Updater panel**. An AE restart is normally unnecessary.
+4. Start After Effects after installing an update. The installer refuses to change installed files while AE is running, including when its panel is closed, because CEP can retain a locked cache.
 
-The same installer handles first installs and updates. No administrator access or Node.js installation is needed. It validates that the required files are present and reports the installed version. It copies the extension to:
+The same installer handles first installs and updates. No administrator access or Node.js installation is needed. It stages and verifies the complete package before swapping installations, keeps the previous copy under `%LOCALAPPDATA%\VersionUpdater\install-backups`, and resets only Version Updater's CEP cache. It preserves existing CEP registry keys and other extensions' caches. It installs the extension to:
 
 ```text
 %APPDATA%\Adobe\CEP\extensions\com.nickpittas.versionupdater
 ```
 
-The installer enables Adobe's unsigned CEP development-panel setting (`PlayerDebugMode=1`) for CSXS 9–12 in the current user's registry. It does not change footage files or save your AE project. Updates are installed manually by downloading the new ZIP and running the installer again.
+The release includes an Adobe-tool-verified, locally self-signed CEP package (`META-INF/signatures.xml` and `mimetype`). The installer requires these signing files and makes no debug-mode registry changes. It does not change footage files or save your AE project. Updates are installed manually by downloading the new ZIP and running the installer again.
+
+### Blank panels / signature failures
+
+On the affected AE 2026 / CEP 12 installation, both custom panels were rejected with `Signature verification failed`, even while `PlayerDebugMode` was the documented string value `1`. Version 1.5.2 packages the updater with a signature instead of relying on that bypass. The installed MCP panel was separately signed without changing its application code. Signing uses [Adobe's ZXPSignCmd](https://github.com/Adobe-CEP/CEP-Resources/tree/master/ZXPSignCMD); no certificate is added to the Windows trust store.
+
+The updater writes temporary request scripts and responses under the user's `VersionUpdater` data directory. It never writes into its signed installation. Changing any installed source file invalidates its signature: rebuild and re-sign before reinstalling.
 
 ## Use
 
-1. Select footage in the Project bin or layers in an open timeline.
+1. Select footage or one or more compositions in the Project bin, or select layers in an open timeline. Selected Project-bin compositions expand to all their direct file-footage layers; shared sources appear once, with layer targets captured in each selected composition. Nested precomps are not expanded.
 2. Choose **Project bin**, **Timeline**, or **Auto**. Auto prefers selected layers in the active composition, then Project selection.
 3. Click **Scan selection**. Check the assets to update and choose a version/revision from each row's dropdown. **Latest available** is the default; older compatible revisions can also be selected. The current version is marked and disabled. Paths are collapsed under **Show target path**.
 4. Choose an update action and an **Updated version label**. Optionally enable **Apply in a duplicate composition** for replacement or layer addition.
@@ -35,16 +41,23 @@ The installer enables Adobe's unsigned CEP development-panel setting (`PlayerDeb
 | Action | Project bin | Timeline |
 | --- | --- | --- |
 | **Replace existing footage** | Replaces each checked footage item's source in place | Every layer using that source updates throughout the project |
+| **Update layers in selected comp only** | Imports new sources and retains the original footage | Swaps sources only on captured layers in scanned composition(s); other comps retain their sources |
 | **Import selected versions to Project bin only** | Imports new footage into the original bin folder and retains the original | Leaves all layers unchanged; no open composition is needed |
 | **Add new layers above originals** | Imports new footage and retains the original | Duplicates each targeted layer directly above its original and assigns the new source |
 
 Bin-only and add-layer actions import a fresh copy, even if the chosen file already exists elsewhere in the project. They preserve still/sequence mode and copy compatible interpretation settings; unsupported settings produce warnings.
 
+### Sequence version folders
+
+Whenever an action imports a new sequence instead of replacing a bin source in place, the sequence is placed in an AE Project-bin version subfolder, such as `card_12`. Matching albedo, diffuse, reflections and other passes from a named `card_r12` render folder share that folder. For plain `r12` folders or same-folder file versions, the name is derived from the sequence filename with the version, frame number and recognized pass suffix removed. Unrecognized filename suffixes are retained to avoid grouping unrelated assets. Stills remain in the original bin folder.
+
+Folders are created below the original bin folder and reused by name. When the source already lives in a generated `card_11` folder, `card_12` is created/reused beside it rather than nested inside it. Separate original bin locations retain separate version folders. These are virtual AE Project-bin folders; nothing is created or moved on the NAS.
+
 ### Duplicate compositions and layer targeting
 
 **Apply in a duplicate composition** duplicates the scanned top-level composition and applies replacement or layer addition there. Replacement in this mode imports new footage and changes only the targeted layer sources in the duplicate. Original sources and the original composition remain unchanged. Nested precomps remain shared. Duplicate names are made unique automatically. This option is unavailable for bin-only imports.
 
-For add-layer and duplicate-comp actions, open the intended composition **before scanning**. Timeline selection targets only the captured selected layer instances. Project selection targets every direct layer in the open composition using the checked footage. The preview shows the targeted layer count. Saved composition/layer IDs prevent later selection changes from redirecting edits. Sources absent from that composition are skipped.
+For comp-only, add-layer and duplicate-comp actions, select the intended compositions in the Project bin and use **Project bin** selection, or open the intended composition before scanning footage/layers. Timeline selection targets only the captured selected layer instances. Project footage selection targets matching direct layers in the open comp. Explicitly selected Project-bin comps take precedence over the open comp; with multiple comps selected, duplicate mode creates a separate duplicate for each targeted comp. The preview shows the total targeted layer count. Saved composition/layer IDs prevent later selection changes from redirecting edits. Sources absent from the captured compositions are skipped.
 
 Added layers preserve timing, transforms, effects, masks, keyframes, switches and lock states. Original layers remain enabled. Both layers can contribute transparent pixels or audio; disable/mute originals yourself when appropriate. New duration or dimensions can affect the result. Changed starting frames are flagged but are not automatically retimed.
 
@@ -86,9 +99,12 @@ node build.cjs
 node tests/version-core.test.cjs
 node tests/render-versions.test.cjs
 node tests/transport.test.cjs
+node tests/comp-versions.test.cjs
 ```
 
-Edit `extension/jsx/host-main.js` and `extension/jsx/version-core.js`, rebuild, then reinstall. `build.cjs` bundles JSON support, matching and host code into `host.jsx` without relative includes. CEP requests use short `evalFile` calls and unique temporary JSON responses to handle empty Windows script callbacks; request/response files are cleaned up after reading.
+Edit `extension/jsx/host-main.js` and `extension/jsx/version-core.js`, rebuild, then re-sign and reinstall with `powershell -ExecutionPolicy Bypass -File .\repair-signatures.ps1` while AE is closed. The helper downloads Adobe's signing tool if needed and keeps its generated certificate/password outside the repository under `%LOCALAPPDATA%\VersionUpdater\signing`. Do not distribute those private signing files. The optional `-IncludeMcp` switch also signs the existing local MCP panel. The release ZIP contains the already signed updater and needs no signing tools.
+
+`build.cjs` bundles JSON support, matching and host code into `host.jsx` without relative includes. CEP requests use short `evalFile` calls and unique temporary JSON responses to handle empty Windows script callbacks; request/response files are cleaned up after reading.
 
 Native fixture scripts under `tests/` verify bin-only still/sequence imports, replacement, layer addition, duplicate compositions, labels, source/layer preservation, older-version choices, stale-preview rejection and shared directory caches in AE. They need a local AE installation and local fixture paths adjusted for the machine. Recorded production-project reports and source media are not required for installation.
 
@@ -96,6 +112,9 @@ Read-only checks on three NAS render roots confirmed sibling revisions, nested r
 
 ## Changes
 
+- **1.5.2:** Signed CEP package for hosts rejecting unsigned panels despite debug mode. Move temporary request scripts outside the installation so scanning cannot invalidate the signature. Installer no longer changes CEP debug-mode settings.
+- **1.5.1:** Require AE to be closed during installation; stage and hash-verify files, preserve a rollback copy, and refresh only the updater's cache. Keep existing CEP registry settings. Add a visible panel version for confirming the loaded build.
+- **1.5.0:** Project-bin composition scanning, comp-only source swaps preserving original bin footage, and grouped sequence version folders. Multiple selected comps and duplicate-comp actions share imported footage while preserving comp scope.
 - **1.4.0:** Project-bin-only imports; compatibility-filtered revision dropdowns; native still/sequence bin-only verification.
 - **1.3.0:** Per-asset version/revision dropdowns with latest default and explicit older-version selection.
 - **1.2.0:** Sibling render revision discovery, nested pass paths, NAS query caching and sequence warnings.

@@ -19,7 +19,7 @@
             var result = JSON.parse(VersionUpdater.apply(JSON.stringify({rows: scan.rows, context: {}, options: {action: "import", label: "11"}})));
             assert(result.ok && result.imported === 1 && result.layersUpdated === 0 && !result.duplicateComp, "Bin import failed: " + JSON.stringify(result));
             var fresh = app.project.itemByID(result.results[0].importedItemId);
-            assert(fresh && fresh.id !== source.id && fresh.parentFolder.id === folder.id, "New footage was not retained in original bin");
+            assert(fresh && fresh.id !== source.id && (sequence ? fresh.parentFolder.name === "shot_2" && fresh.parentFolder.parentFolder.id === folder.id : fresh.parentFolder.id === folder.id), "New footage was not placed in expected bin/version folder");
             assert(fresh.file.name === expected && fresh.label === 11, "Wrong footage or label imported");
             assert(source.file.fsName === originalPath && source.label === 5, "Original footage changed");
             assert(comp.numLayers === beforeCount && layer.source.id === source.id && layer.name === "Original layer" && layer.label === 2, "Timeline changed in bin-only mode");

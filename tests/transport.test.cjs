@@ -6,11 +6,11 @@ async function run(callbackValue, fileValue, writes = true) {
     getSystemPath: key => key === 'extension' ? 'file:///C:/extension%20test' : 'C:/userdata',
     evalScript: (script, callback) => { evaluated = script; callback(callbackValue); }
   };
-  const fs = {readFile:()=>({err:writes ? 0 : 3,data:fileValue}), writeFile:()=>({err:0}), deleteFile:file=>deleted.push(file)};
+  const fs = {makedir:()=>({err:0}), readFile:()=>({err:writes ? 0 : 3,data:fileValue}), writeFile:(path)=>{assert.ok(!path.startsWith('C:/extension test/'));return {err:0};}, deleteFile:file=>deleted.push(file)};
   const result = await new Promise(resolve=>create(host, fs, {setTimeout:(fn)=>setTimeout(fn,1),clearTimeout})('VersionUpdater.scan("project")',data=>{calls++;resolve(data);}));
   assert.equal(calls,1);
   assert.equal(deleted.length,2);
-  assert.match(evaluated,/C:\/extension test\/jsx\/request-/);
+  assert.match(evaluated,/C:\/userdata\/VersionUpdater\/request-/);
   return result;
 }
 (async()=>{

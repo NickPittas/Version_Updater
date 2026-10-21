@@ -4,5 +4,9 @@ tests/probe-panel.jsx
 *.zip
 tests/*.json
 tools/
+recovery/
+.rnd
+*.p12
+*.password
 tests/probe-panel.cjs
 tests/start-ae-bridge.jsx

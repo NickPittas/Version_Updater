@@ -109,6 +109,18 @@ var VersionUpdaterCore = (function () {
             .replace(/\.\{frame:(\d+)\}/g, function (match, width) { return "?" + (probeFrame === undefined ? frameMask(match, width) : probeFrame); })
             .replace(/\{frame:(\d+)\}/g, frameMask);
     }
-    return {parse: parse, choose: choose, revision: revision, renderFile: renderFile, chooseRender: chooseRender, glob: glob};
+    function sequenceBinName(name, version, revisionFolder) {
+        function clean(value) {
+            return value.replace(/(^|[._ -])(version|ver|v|r)\d+(?=$|[._ -])/ig, "$1")
+                .replace(/[._ -]+$/g, "").replace(/^[._ -]+/g, "");
+        }
+        var base = revisionFolder ? clean(revisionFolder) : "";
+        if (!base) {
+            base = clean(name.replace(/\.[^.]+$/, "").replace(/[._ -]\d+$/, ""));
+            base = base.replace(/[._ -]+(albedo|diffuse|reflections?|refractions?|specular|beauty|emission|normals?|depth|zdepth|ambient[._ -]?occlusion|ao|gi|shadow|shadows|lighting|roughness|metallic|opacity|transmission|cryptomatte)([._ -]*\d+)?$/i, "");
+        }
+        return (base || "sequence") + "_" + version;
+    }
+    return {parse: parse, choose: choose, revision: revision, renderFile: renderFile, chooseRender: chooseRender, glob: glob, sequenceBinName: sequenceBinName};
 }());
 if (typeof module !== "undefined" && module.exports) module.exports = VersionUpdaterCore;

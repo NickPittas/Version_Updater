@@ -642,7 +642,19 @@ var VersionUpdaterCore = (function () {
             .replace(/\.\{frame:(\d+)\}/g, function (match, width) { return "?" + (probeFrame === undefined ? frameMask(match, width) : probeFrame); })
             .replace(/\{frame:(\d+)\}/g, frameMask);
     }
-    return {parse: parse, choose: choose, revision: revision, renderFile: renderFile, chooseRender: chooseRender, glob: glob};
+    function sequenceBinName(name, version, revisionFolder) {
+        function clean(value) {
+            return value.replace(/(^|[._ -])(version|ver|v|r)\d+(?=$|[._ -])/ig, "$1")
+                .replace(/[._ -]+$/g, "").replace(/^[._ -]+/g, "");
+        }
+        var base = revisionFolder ? clean(revisionFolder) : "";
+        if (!base) {
+            base = clean(name.replace(/\.[^.]+$/, "").replace(/[._ -]\d+$/, ""));
+            base = base.replace(/[._ -]+(albedo|diffuse|reflections?|refractions?|specular|beauty|emission|normals?|depth|zdepth|ambient[._ -]?occlusion|ao|gi|shadow|shadows|lighting|roughness|metallic|opacity|transmission|cryptomatte)([._ -]*\d+)?$/i, "");
+        }
+        return (base || "sequence") + "_" + version;
+    }
+    return {parse: parse, choose: choose, revision: revision, renderFile: renderFile, chooseRender: chooseRender, glob: glob, sequenceBinName: sequenceBinName};
 }());
 if (typeof module !== "undefined" && module.exports) module.exports = VersionUpdaterCore;
 
@@ -684,20 +696,25 @@ var VersionUpdater = (function () {
     }
     function collect(mode) {
         if (!app.project) throw new Error("Open a project first.");
-        var items = [], seen = {}, selected, i, item;
+        var items = [], seen = {}, selected, i, item, comps = [];
         var comp = app.project.activeItem;
         var useTimeline = mode === "timeline" || (mode === "auto" && comp instanceof CompItem && comp.selectedLayers.length > 0);
         if (useTimeline) {
             if (!(comp instanceof CompItem)) throw new Error("Open a composition and select timeline layers.");
             selected = comp.selectedLayers;
         } else selected = app.project.selection;
+        function add(source) {
+            if (!source || seen[source.id]) return;
+            seen[source.id] = true; items.push(source);
+        }
         for (i = 0; i < selected.length; i++) {
             item = useTimeline ? selected[i].source : selected[i];
-            if (!item || seen[item.id]) continue;
-            seen[item.id] = true;
-            items.push(item);
+            if (!useTimeline && item instanceof CompItem) {
+                comps.push(item);
+                for (var l = 1; l <= item.numLayers; l++) if (!(item.layer(l).source instanceof CompItem)) add(item.layer(l).source);
+            } else add(item);
         }
-        return items;
+        return {items: items, comps: comps, timeline: useTimeline};
     }
     function statistics(cache) {
         if (!cache.stats) cache.stats = {directoryQueries: 0, cacheHits: 0, entriesReturned: 0, queries: []};
@@ -867,7 +884,7 @@ var VersionUpdater = (function () {
         return row;
     }
     function plan(mode, folderCache) {
-        var items = collect(mode), rows = [], i, item, file, sequence, decision;
+        var selection = collect(mode), items = selection.items, rows = [], i, item, file, sequence, decision;
         for (i = 0; i < items.length; i++) {
             item = items[i];
             var row = {itemId: item.id, item: item.name, status: "skipped"};
@@ -885,21 +902,28 @@ var VersionUpdater = (function () {
                 decorateRow(row, decision, null);
             } catch (error) { row.status = "error"; row.reason = error.toString(); }
         }
-        return rows;
+        return {rows: rows, selection: selection};
     }
     function scan(mode) {
         try {
-            var cache = {}, rows = plan(mode, cache), comp = app.project.activeItem, context = {compId: null, compName: "", mode: mode};
-            if (comp instanceof CompItem) {
-                context.compId = comp.id; context.compName = comp.name;
-                var timeline = mode === "timeline" || (mode === "auto" && comp.selectedLayers.length > 0);
+            var cache = {}, planned = plan(mode, cache), rows = planned.rows, comp = app.project.activeItem;
+            var comps = planned.selection.comps, context = {compId: null, compName: "", mode: mode, comps: []};
+            if (!comps.length && comp instanceof CompItem) comps = [comp];
+            for (var ci = 0; ci < comps.length; ci++) {
+                comp = comps[ci];
+                context.comps.push({id: comp.id, name: comp.name});
+                if (ci === 0) { context.compId = comp.id; context.compName = comp.name; }
+                var timeline = planned.selection.timeline;
                 var layers = [], i, j;
                 if (timeline) layers = comp.selectedLayers;
                 else for (i = 1; i <= comp.numLayers; i++) layers.push(comp.layer(i));
                 for (i = 0; i < rows.length; i++) {
-                    rows[i].layerIds = [];
+                    if (!rows[i].targets) { rows[i].targets = []; rows[i].layerIds = []; }
                     for (j = 0; j < layers.length; j++) {
-                        if (layers[j].source && layers[j].source.id === rows[i].itemId) rows[i].layerIds.push(layers[j].id);
+                        if (layers[j].source && layers[j].source.id === rows[i].itemId) {
+                            rows[i].layerIds.push(layers[j].id);
+                            rows[i].targets.push({compId: comp.id, layerId: layers[j].id});
+                        }
                     }
                 }
             }
@@ -917,12 +941,29 @@ var VersionUpdater = (function () {
         if (decision.status !== "update" || new File(decision.path).fsName !== target.fsName || (decision.warning || "") !== (row.warning || "")) throw new Error("Folder contents changed. Scan again.");
         return {item: item, target: target, row: row, layers: []};
     }
-    function importVersion(entry, warnings) {
+    function sequenceBin(entry, bins) {
+        var context = renderContext(entry.target);
+        var name = VersionUpdaterCore.sequenceBinName(filename(entry.target), entry.row.to, context ? File.decode(context.folder.name) : "");
+        var parent = entry.item.parentFolder;
+        // A previous generated version folder should gain a sibling, not nested revisions.
+        var oldName = name.replace(/_\d+$/, "_" + entry.row.from);
+        if (parent.name.toLowerCase() === oldName.toLowerCase() && parent.parentFolder && parent.id !== app.project.rootFolder.id) parent = parent.parentFolder;
+        var key = "$" + parent.id + "|" + name.toLowerCase();
+        if (bins[key]) return bins[key];
+        for (var i = 1; i <= parent.numItems; i++) {
+            var existing = parent.item(i);
+            if (existing instanceof FolderItem && existing.name.toLowerCase() === name.toLowerCase()) { bins[key] = existing; return existing; }
+        }
+        var folder = app.project.items.addFolder(name); folder.parentFolder = parent;
+        bins[key] = folder; bins.created.push(folder); return folder;
+    }
+    function importVersion(entry, warnings, bins) {
         var options = new ImportOptions(entry.target);
         options.importAs = ImportAsType.FOOTAGE;
         if (entry.row.sequence) { options.sequence = true; options.forceAlphabetical = false; }
         var fresh = app.project.importFile(options);
-        fresh.parentFolder = entry.item.parentFolder;
+        try { fresh.parentFolder = entry.row.sequence && bins ? sequenceBin(entry, bins) : entry.item.parentFolder; }
+        catch (error) { fresh.remove(); throw error; }
         fresh.label = entry.item.label;
         var props = ["alphaMode", "premulColor", "invertAlpha", "fieldSeparationType", "highQualityFieldSeparation", "removePulldown", "conformFrameRate", "loop"];
         for (var p = 0; p < props.length; p++) {
@@ -943,13 +984,13 @@ var VersionUpdater = (function () {
         return name;
     }
     function apply(json) {
-        var rows, results = [], updated = 0, layersUpdated = 0, i, row, options, context, comp = null, duplicate = null, warnings = [];
+        var rows, results = [], updated = 0, layersUpdated = 0, i, row, options, context, comp = null, duplicate = null, warnings = [], duplicates = [], bins = {created: []};
         try {
             var request = JSON.parse(json);
             rows = request instanceof Array ? request : request.rows;
             options = request.options || {}; context = request.context || {};
-            var action = options.action || "replace", local = action === "add" || (action === "replace" && options.duplicateComp === true);
-            if (action !== "replace" && action !== "add" && action !== "import") throw new Error("Unsupported update mode.");
+            var action = options.action || "replace", local = action === "comp" || action === "add" || (action === "replace" && options.duplicateComp === true);
+            if (action !== "replace" && action !== "add" && action !== "import" && action !== "comp") throw new Error("Unsupported update mode.");
             if (action === "import" && options.duplicateComp === true) throw new Error("Project-bin-only mode does not create a duplicate composition.");
             if (local) {
                 if (!context.compId) throw new Error("Scan with your target composition open before using layer or duplicate-comp mode.");
@@ -963,12 +1004,18 @@ var VersionUpdater = (function () {
                 try {
                     var entry = validate(row, validationCache);
                     if (local) {
-                        var ids = row.layerIds || [], j, k;
-                        for (j = 0; j < ids.length; j++) {
+                        var ids = row.layerIds || [], targets = row.targets || [], j, k;
+                        if (!targets.length) for (j = 0; j < ids.length; j++) targets.push({compId: context.compId, layerId: ids[j]});
+                        for (j = 0; j < targets.length; j++) {
+                            var allowed = targets[j].compId === context.compId;
+                            for (var ac = 0; ac < (context.comps || []).length; ac++) if (context.comps[ac].id === targets[j].compId) allowed = true;
+                            if (!allowed) throw new Error("Composition scope changed. Scan again.");
+                            var targetComp = app.project.itemByID(targets[j].compId);
+                            if (!(targetComp instanceof CompItem)) throw new Error("Composition removed. Scan again.");
                             var matched = null;
-                            for (k = 1; k <= comp.numLayers; k++) if (comp.layer(k).id === ids[j]) { matched = comp.layer(k); break; }
+                            for (k = 1; k <= targetComp.numLayers; k++) if (targetComp.layer(k).id === targets[j].layerId) { matched = targetComp.layer(k); break; }
                             if (!matched || !matched.source || matched.source.id !== entry.item.id) throw new Error("Timeline changed since preview. Scan again.");
-                            entry.layers.push({original: matched, index: matched.index});
+                            entry.layers.push({original: matched, index: matched.index, comp: targetComp});
                         }
                         if (!entry.layers.length) throw new Error("This footage has no targeted layers in the scanned composition.");
                     }
@@ -979,17 +1026,24 @@ var VersionUpdater = (function () {
             app.beginUndoGroup("Update selected footage versions");
             try {
                 if (options.duplicateComp === true) {
-                    var duplicateName = uniqueCompName(options.compName || comp.name + " - updated");
-                    duplicate = comp.duplicate(); duplicate.name = duplicateName;
+                    var duplicateMap = {};
+                    for (i = 0; i < entries.length; i++) for (var dl = 0; dl < entries[i].layers.length; dl++) {
+                        var sourceComp = entries[i].layers[dl].comp, compKey = "$" + sourceComp.id;
+                        if (!duplicateMap[compKey]) {
+                            var duplicateName = uniqueCompName(options.compName || sourceComp.name + " - updated");
+                            duplicate = sourceComp.duplicate(); duplicate.name = duplicateName;
+                            duplicateMap[compKey] = duplicate; duplicates.push(duplicate);
+                        }
+                    }
                     // Capture every layer object before additions can shift any layer indexes.
-                    for (i = 0; i < entries.length; i++) for (var d = 0; d < entries[i].layers.length; d++) entries[i].layers[d].target = duplicate.layer(entries[i].layers[d].index);
+                    for (i = 0; i < entries.length; i++) for (var d = 0; d < entries[i].layers.length; d++) entries[i].layers[d].target = duplicateMap["$" + entries[i].layers[d].comp.id].layer(entries[i].layers[d].index);
                 }
                 for (i = 0; i < entries.length; i++) {
                     var current = entries[i], fresh = null, created = [], changed = [], rowLayerCount = 0;
                     row = current.row;
                     try {
                         if (action === "import") {
-                            fresh = importVersion(current, warnings);
+                            fresh = importVersion(current, warnings, bins);
                             applyLabel(fresh, options, warnings);
                         } else if (!local) {
                             if (row.sequence) current.item.replaceWithSequence(current.target, false);
@@ -997,7 +1051,7 @@ var VersionUpdater = (function () {
                             applyLabel(current.item, options, warnings);
                             labelSourceLayers(current.item, options, warnings);
                         } else {
-                            fresh = importVersion(current, warnings);
+                            fresh = importVersion(current, warnings, bins);
                             applyLabel(fresh, options, warnings);
                             for (var l = 0; l < current.layers.length; l++) {
                                 var original = duplicate ? current.layers[l].target : current.layers[l].original;
@@ -1014,7 +1068,7 @@ var VersionUpdater = (function () {
                             }
                         }
                         updated++; layersUpdated += rowLayerCount;
-                        results.push({item: row.item, status: "updated", target: current.target.fsName, importedItemId: fresh ? fresh.id : null, reason: action === "import" ? "Imported into Project bin; existing sources and layers unchanged" : local ? rowLayerCount + " layer(s) " + (action === "add" ? "added above originals" : "updated in duplicate") : "Source replaced throughout project"});
+                        results.push({item: row.item, status: "updated", target: current.target.fsName, importedItemId: fresh ? fresh.id : null, binFolder: fresh ? fresh.parentFolder.name : null, reason: action === "import" ? "Imported into Project bin; existing sources and layers unchanged" : local ? rowLayerCount + " layer(s) " + (action === "add" ? "added above originals" : "updated in " + (duplicate ? "duplicate" : "scanned composition(s)")) : "Source replaced throughout project"});
                     } catch (error) {
                         // Roll back this row's new layers/source changes, retaining successful other rows.
                         for (var c = created.length - 1; c >= 0; c--) try { created[c].locked = false; created[c].remove(); } catch (_cleanupLayer) {}
@@ -1026,10 +1080,12 @@ var VersionUpdater = (function () {
                         results.push({item: row.item, status: "error", reason: error.toString()});
                     }
                 }
-                if (duplicate && updated === 0) { duplicate.remove(); duplicate = null; }
+                if (updated === 0) { for (i = 0; i < duplicates.length; i++) duplicates[i].remove(); duplicate = null; duplicates = []; }
+                for (i = bins.created.length - 1; i >= 0; i--) if (bins.created[i].numItems === 0) bins.created[i].remove();
                 if (duplicate) duplicate.openInViewer();
             } finally { app.endUndoGroup(); }
-            return JSON.stringify({ok: true, updated: updated, imported: action === "import" ? updated : 0, layersUpdated: layersUpdated, results: results, warnings: warnings, duplicateComp: duplicate ? {id: duplicate.id, name: duplicate.name} : null});
+            var duplicateInfo = []; for (i = 0; i < duplicates.length; i++) duplicateInfo.push({id: duplicates[i].id, name: duplicates[i].name});
+            return JSON.stringify({ok: true, updated: updated, imported: action === "import" ? updated : 0, layersUpdated: layersUpdated, results: results, warnings: warnings, duplicateComps: duplicateInfo, duplicateComp: duplicate ? {id: duplicate.id, name: duplicate.name} : null});
         } catch (error) { return JSON.stringify({ok: false, error: error.toString()}); }
     }
     function inspectSource(path, sequence) {

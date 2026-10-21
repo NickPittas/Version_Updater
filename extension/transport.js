@@ -18,9 +18,10 @@
         return function invoke(expression, callback) {
             var id = String(Date.now()) + '-' + Math.random().toString(16).slice(2);
             var extensionPath = normalizePath(cepHost.getSystemPath('extension'));
-            var responsePath = normalizePath(cepHost.getSystemPath('userData')) + '/VersionUpdater/response-' + id + '.json';
+            var workPath = normalizePath(cepHost.getSystemPath('userData')) + '/VersionUpdater';
+            var responsePath = workPath + '/response-' + id + '.json';
             var done = false, started = Date.now(), lastResponse = '', pollTimer;
-            var scriptPath = extensionPath + '/jsx/request-' + id + '.jsx';
+            var scriptPath = workPath + '/request-' + id + '.jsx';
             var timeoutMs = expression.indexOf('VersionUpdater.apply(') === 0 ? 600000 : 300000;
             function finish(data) {
                 if (done) return; done = true;
@@ -53,8 +54,9 @@
             try {
                 var script = buildScript(extensionPath + '/jsx/host.jsx', responsePath, expression);
                 // Pass only a short evalFile expression through the native CEP string bridge.
+                cepFs.makedir(workPath);
                 var saved = cepFs.writeFile(scriptPath, script);
-                if (!saved || saved.err !== 0) throw new Error('Cannot write the request script in the extension folder.');
+                if (!saved || saved.err !== 0) throw new Error('Cannot write the request script in the user data folder.');
                 cepHost.evalScript('$.evalFile(new File(' + JSON.stringify(scriptPath) + '));', function (value) {
                     if (done) return; lastResponse = value;
                     // Fast path on hosts whose native callback works. Empty callbacks leave polling active.
